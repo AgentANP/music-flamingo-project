@@ -1,0 +1,37 @@
+# Byte-compiled / caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv*/
+venv*/
+env/
+ENV/
+.venv311/
+
+# Hugging Face cache and model artifacts
+hf_cache/
+hf_home/
+models--*
+model.safetensors
+*.safetensors
+*.ckpt
+*.pt
+*.bin
+*.tar
+*.zip
+
+# Offload and temp
+offload/
+temp_log.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor/workspace
+.vscode/
+.idea/
+*.log

@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Music Flamingo · AI Music Captioner</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:       #0a0a0f;
+      --surface:  #111118;
+      --card:     #16161f;
+      --border:   #2a2a3a;
+      --accent:   #e8755a;
+      --accent2:  #c45f9e;
+      --text:     #e8e4dd;
+      --muted:    #6a6678;
+      --success:  #5ec4a0;
+      --wave1:    #e8755a44;
+      --wave2:    #c45f9e44;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Noise grain overlay ───────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Ambient blobs ─────────────────────────────── */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .blob-1 {
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, var(--wave1), transparent 70%);
+      top: -150px; left: -150px;
+      animation: float1 18s ease-in-out infinite;
+    }
+    .blob-2 {
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, var(--wave2), transparent 70%);
+      bottom: -100px; right: -100px;
+      animation: float2 22s ease-in-out infinite;
+    }
+    @keyframes float1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(80px,60px)} }
+    @keyframes float2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-60px,-80px)} }
+
+    /* ── Layout ────────────────────────────────────── */
+    .app {
+      position: relative;
+      z-index: 1;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    /* ── Header ────────────────────────────────────── */
+    header {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+    .logo-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .flamingo-icon {
+      width: 52px; height: 52px;
+    }
+    h1 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(2.4rem, 5vw, 3.6rem);
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .tagline {
+      color: var(--muted);
+      font-size: 0.78rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-top: 6px;
+    }
+
+    /* ── Status pill ───────────────────────────────── */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 14px;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 18px;
+      transition: all 0.3s;
+    }
+    .status-pill.ok   { border-color: #5ec4a044; color: var(--success); }
+    .status-pill.err  { border-color: #e8755a44; color: var(--accent); }
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse-dot 2s infinite;
+    }
+    @keyframes pulse-dot {
+      0%,100% { opacity: 1 } 50% { opacity: 0.3 }
+    }
+
+    /* ── Card ──────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 36px;
+      margin-bottom: 28px;
+      position: relative;
+      overflow: hidden;
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.4;
+    }
+
+    /* ── Drop zone ─────────────────────────────────── */
+    .drop-zone {
+      border: 1.5px dashed var(--border);
+      border-radius: 14px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.25s;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: #e8755a08;
+    }
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .drop-icon {
+      font-size: 2.8rem;
+      margin-bottom: 14px;
+      display: block;
+    }
+    .drop-title {
+      font-size: 0.88rem;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .drop-sub {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    /* ── Audio preview ─────────────────────────────── */
+    .audio-preview {
+      display: none;
+      margin-top: 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      align-items: center;
+      gap: 14px;
+    }
+    .audio-preview.visible { display: flex; }
+    .file-info { flex: 1; overflow: hidden; }
+    .file-name {
+      font-size: 0.82rem;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .file-size {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+    .remove-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-family: inherit;
+      font-size: 0.72rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .remove-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Waveform visualizer ───────────────────────── */
+    .waveform {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      height: 36px;
+    }
+    .waveform .bar {
+      width: 3px;
+      border-radius: 2px;
+      background: linear-gradient(to top, var(--accent), var(--accent2));
+      animation: wave-anim var(--dur, 0.8s) ease-in-out infinite alternate;
+    }
+    @keyframes wave-anim { from { height: 4px } to { height: var(--h, 28px) } }
+
+    /* ── Form fields ───────────────────────────────── */
+    .field-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+      display: block;
+    }
+    textarea {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.82rem;
+      resize: vertical;
+      min-height: 90px;
+      transition: border-color 0.2s;
+      outline: none;
+    }
+    textarea:focus { border-color: var(--accent); }
+
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 20px;
+    }
+    @media (max-width: 560px) { .row-2 { grid-template-columns: 1fr; } }
+
+    .field-group { display: flex; flex-direction: column; }
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      box-shadow: 0 0 8px var(--wave1);
+    }
+    .range-val {
+      font-size: 0.75rem;
+      color: var(--accent);
+      text-align: right;
+      margin-top: 5px;
+    }
+
+    /* ── Preset prompts ────────────────────────────── */
+    .presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .preset-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 5px 14px;
+      font-family: inherit;
+      font-size: 0.7rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .preset-btn:hover {
+      border-color: var(--accent2);
+      color: var(--accent2);
+    }
+
+    /* ── Submit button ─────────────────────────────── */
+    .submit-btn {
+      width: 100%;
+      margin-top: 28px;
+      padding: 16px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: none;
+      border-radius: 12px;
+      color: #fff;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.2rem;
+      font-weight: 400;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      transition: all 0.25s;
+      position: relative;
+      overflow: hidden;
+    }
+    .submit-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 32px #e8755a33; }
+    .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .submit-btn .btn-shimmer {
+      position: absolute;
+      top: 0; left: -100%; width: 60%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+      animation: shimmer 2.5s infinite;
+    }
+    @keyframes shimmer { to { left: 150% } }
+
+    /* ── Output ────────────────────────────────────── */
+    .output-card {
+      display: none;
+      animation: slide-up 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .output-card.visible { display: block; }
+    @keyframes slide-up {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .output-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .output-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .copy-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-family: inherit;
+      font-size: 0.7rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .copy-btn:hover { border-color: var(--success); color: var(--success); }
+    .copy-btn.copied { border-color: var(--success); color: var(--success); }
+
+    .output-text {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.18rem;
+      font-weight: 300;
+      line-height: 1.85;
+      color: var(--text);
+      white-space: pre-wrap;
+    }
+
+    .prompt-echo {
+      margin-top: 20px;
+      padding: 12px 16px;
+      background: var(--surface);
+      border-radius: 8px;
+      border-left: 2px solid var(--accent2);
+    }
+    .prompt-echo-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+    .prompt-echo-text {
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    /* ── Loading spinner ───────────────────────────── */
+    .loading-wrap {
+      display: none;
+      text-align: center;
+      padding: 40px;
+    }
+    .loading-wrap.visible { display: block; }
+    .spinner-ring {
+      width: 56px; height: 56px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-right-color: var(--accent2);
+      border-radius: 50%;
+      margin: 0 auto 20px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg) } }
+    .loading-text {
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .loading-text em {
+      color: var(--accent);
+      font-style: normal;
+      display: block;
+      margin-top: 8px;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1rem;
+      font-style: italic;
+    }
+
+    /* ── Error ─────────────────────────────────────── */
+    .error-msg {
+      display: none;
+      background: #e8755a15;
+      border: 1px solid #e8755a44;
+      border-radius: 10px;
+      padding: 16px 20px;
+      font-size: 0.8rem;
+      color: var(--accent);
+      margin-top: 16px;
+    }
+    .error-msg.visible { display: block; }
+
+    /* ── Footer ────────────────────────────────────── */
+    footer {
+      text-align: center;
+      font-size: 0.68rem;
+      color: var(--muted);
+      margin-top: 48px;
+      letter-spacing: 0.06em;
+    }
+    footer span { color: var(--accent2); }
+  </style>
+</head>
+<body>
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+
+  <div class="app">
+    <!-- Header -->
+    <header>
+      <div class="logo-wrap">
+        <svg class="flamingo-icon" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="26" cy="26" r="25" stroke="url(#hg)" stroke-width="1.5" fill="none"/>
+          <!-- Simplified flamingo silhouette -->
+          <path d="M26 10 C26 10 20 14 20 20 C20 25 24 27 24 32 L24 42 L28 42 L28 32 C28 27 32 25 32 20 C32 14 26 10 26 10Z" fill="url(#hg2)" opacity="0.85"/>
+          <path d="M24 42 L22 46 L30 46 L28 42Z" fill="url(#hg)" opacity="0.6"/>
+          <circle cx="26" cy="14" r="4" fill="url(#hg)" opacity="0.9"/>
+          <defs>
+            <linearGradient id="hg" x1="0" y1="0" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#e8755a"/>
+              <stop offset="100%" stop-color="#c45f9e"/>
+            </linearGradient>
+            <linearGradient id="hg2" x1="0" y1="0" x2="52" y2="52" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#e8755a" stop-opacity="0.9"/>
+              <stop offset="100%" stop-color="#c45f9e" stop-opacity="0.6"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <h1>Music Flamingo</h1>
+      </div>
+      <p class="tagline">AI Music Description &amp; Caption Generator</p>
+      <div class="status-pill" id="statusPill">
+        <span class="status-dot"></span>
+        <span id="statusText">Connecting to server…</span>
+      </div>
+    </header>
+
+    <!-- Upload Card -->
+    <div class="card">
+      <!-- Drop Zone -->
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="audioFile" accept=".wav,.mp3,.flac,.ogg,.m4a" />
+        <span class="drop-icon">🎵</span>
+        <p class="drop-title">Drop an audio file here, or click to browse</p>
+        <p class="drop-sub">WAV · MP3 · FLAC · OGG · M4A &nbsp;·&nbsp; Up to 20 minutes</p>
+      </div>
+
+      <!-- Audio Preview -->
+      <div class="audio-preview" id="audioPreview">
+        <div class="waveform" id="waveform"></div>
+        <div class="file-info">
+          <div class="file-name" id="fileName">—</div>
+          <div class="file-size" id="fileSize">—</div>
+        </div>
+        <button class="remove-btn" id="removeBtn">✕ Remove</button>
+      </div>
+
+      <!-- Prompt Section -->
+      <div style="margin-top: 28px;">
+        <label class="field-label">Prompt</label>
+        <div class="presets">
+          <button class="preset-btn" data-prompt="Write a rich caption describing this music track — include genre, tempo, key, instruments, production style, and overall mood.">🎼 Full Caption</button>
+          <button class="preset-btn" data-prompt="Identify the genre, subgenre, BPM, and musical key of this track.">🎹 Genre &amp; Key</button>
+          <button class="preset-btn" data-prompt="List all instruments you can hear in this track, from most to least prominent.">🎸 Instruments</button>
+          <button class="preset-btn" data-prompt="Describe the emotional mood and atmosphere of this music in evocative, poetic language.">🌙 Mood &amp; Feel</button>
+          <button class="preset-btn" data-prompt="Analyze the production style and mixing techniques used in this track.">🎛 Production</button>
+        </div>
+        <textarea id="promptText" rows="3" placeholder="Describe what you want to know about this track…">Write a rich caption describing this music track — include genre, tempo, key, instruments, production style, and overall mood.</textarea>
+      </div>
+
+      <!-- Settings Row -->
+      <div class="row-2">
+        <div class="field-group">
+          <label class="field-label">Max Tokens</label>
+          <input type="range" id="maxTokens" min="64" max="1024" step="64" value="512"
+                 oninput="document.getElementById('tokenVal').textContent = this.value" />
+          <div class="range-val"><span id="tokenVal">512</span> tokens</div>
+        </div>
+        <div class="field-group">
+          <label class="field-label">API Host</label>
+          <input type="text" id="apiHost" value="http://localhost:8000"
+            style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-family:inherit;font-size:0.78rem;outline:none;margin-top:8px;width:100%;" />
+        </div>
+      </div>
+
+      <button class="submit-btn" id="submitBtn">
+        <span class="btn-shimmer"></span>
+        Analyse Track
+      </button>
+
+      <div class="error-msg" id="errorMsg"></div>
+    </div>
+
+    <!-- Loading -->
+    <div class="card loading-wrap" id="loadingWrap">
+      <div class="spinner-ring"></div>
+      <div class="loading-text">
+        Processing audio with Music Flamingo…
+        <em>This may take a moment on first run while the model warms up.</em>
+      </div>
+    </div>
+
+    <!-- Output -->
+    <div class="card output-card" id="outputCard">
+      <div class="output-header">
+        <span class="output-label">✦ Caption Generated</span>
+        <button class="copy-btn" id="copyBtn">Copy</button>
+      </div>
+      <div class="output-text" id="outputText"></div>
+      <div class="prompt-echo">
+        <div class="prompt-echo-label">Prompt used</div>
+        <div class="prompt-echo-text" id="promptEcho"></div>
+      </div>
+    </div>
+
+    <footer>
+      Powered by <span>nvidia/music-flamingo-2601-hf</span> &nbsp;·&nbsp; Running locally via FastAPI
+    </footer>
+  </div>
+
+  <script>
+    const API = () => document.getElementById('apiHost').value.replace(/\/$/, '');
+
+    // ── Status check ─────────────────────────────────────
+    async function checkStatus() {
+      const pill = document.getElementById('statusPill');
+      const txt  = document.getElementById('statusText');
+      try {
+        const r = await fetch(API() + '/health', { signal: AbortSignal.timeout(4000) });
+        const d = await r.json();
+        if (d.model_loaded) {
+          pill.className = 'status-pill ok';
+          txt.textContent = 'Model loaded · Ready';
+        } else {
+          pill.className = 'status-pill err';
+          txt.textContent = 'Server up · Model loading…';
+        }
+      } catch {
+        pill.className = 'status-pill err';
+        txt.textContent = 'Server offline · Start backend first';
+      }
+    }
+    checkStatus();
+    setInterval(checkStatus, 10000);
+
+    // ── Waveform animation ────────────────────────────────
+    function buildWaveform() {
+      const wf = document.getElementById('waveform');
+      wf.innerHTML = '';
+      for (let i = 0; i < 22; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        const h = Math.random() * 24 + 6;
+        const dur = (Math.random() * 0.5 + 0.5).toFixed(2);
+        bar.style.setProperty('--h', h + 'px');
+        bar.style.setProperty('--dur', dur + 's');
+        bar.style.height = '4px';
+        bar.style.animationDelay = (Math.random() * 0.5).toFixed(2) + 's';
+        wf.appendChild(bar);
+      }
+    }
+
+    // ── File handling ─────────────────────────────────────
+    let selectedFile = null;
+
+    function showPreview(file) {
+      selectedFile = file;
+      document.getElementById('fileName').textContent = file.name;
+      document.getElementById('fileSize').textContent = (file.size / 1024 / 1024).toFixed(2) + ' MB';
+      document.getElementById('audioPreview').classList.add('visible');
+      document.getElementById('dropZone').style.display = 'none';
+      buildWaveform();
+    }
+
+    function clearFile() {
+      selectedFile = null;
+      document.getElementById('audioFile').value = '';
+      document.getElementById('audioPreview').classList.remove('visible');
+      document.getElementById('dropZone').style.display = '';
+    }
+
+    document.getElementById('audioFile').addEventListener('change', e => {
+      if (e.target.files[0]) showPreview(e.target.files[0]);
+    });
+    document.getElementById('removeBtn').addEventListener('click', clearFile);
+
+    // Drag & drop
+    const dz = document.getElementById('dropZone');
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault();
+      dz.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) showPreview(file);
+    });
+
+    // ── Preset prompts ────────────────────────────────────
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.getElementById('promptText').value = btn.dataset.prompt;
+      });
+    });
+
+    // ── Submit ────────────────────────────────────────────
+    document.getElementById('submitBtn').addEventListener('click', async () => {
+      const errorEl  = document.getElementById('errorMsg');
+      const loadEl   = document.getElementById('loadingWrap');
+      const outputEl = document.getElementById('outputCard');
+      const submitBtn = document.getElementById('submitBtn');
+
+      errorEl.className = 'error-msg';
+      outputEl.className = 'output-card';
+
+      if (!selectedFile) {
+        errorEl.textContent = 'Please upload an audio file first.';
+        errorEl.classList.add('visible');
+        return;
+      }
+
+      const prompt     = document.getElementById('promptText').value.trim();
+      const maxTokens  = parseInt(document.getElementById('maxTokens').value);
+
+      submitBtn.disabled = true;
+      loadEl.classList.add('visible');
+
+      try {
+        const form = new FormData();
+        form.append('audio', selectedFile);
+        form.append('prompt', prompt || 'Describe this music track.');
+        form.append('max_new_tokens', maxTokens);
+
+        const res = await fetch(API() + '/generate', {
+          method: 'POST',
+          body: form,
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: res.statusText }));
+          throw new Error(err.detail || 'Unknown server error');
+        }
+
+        const data = await res.json();
+        document.getElementById('outputText').textContent = data.caption;
+        document.getElementById('promptEcho').textContent = data.prompt;
+        outputEl.classList.add('visible');
+        outputEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+      } catch (err) {
+        errorEl.textContent = '⚠ ' + err.message;
+        errorEl.classList.add('visible');
+      } finally {
+        loadEl.classList.remove('visible');
+        submitBtn.disabled = false;
+      }
+    });
+
+    // ── Copy button ───────────────────────────────────────
+    document.getElementById('copyBtn').addEventListener('click', async () => {
+      const text = document.getElementById('outputText').textContent;
+      await navigator.clipboard.writeText(text);
+      const btn = document.getElementById('copyBtn');
+      btn.textContent = '✓ Copied';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    });
+  </script>
+</body>
+</html>
