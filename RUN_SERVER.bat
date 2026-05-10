@@ -16,6 +16,9 @@ echo GPU: NVIDIA GeForce RTX 4070 Laptop GPU
 echo.
 
 set PRELOAD_MODEL=1
+set HF_HOME=%CD%\hf_cache
+set HUGGINGFACE_HUB_CACHE=%CD%\hf_cache\hub
+set TRANSFORMERS_CACHE=%CD%\hf_cache\hub
 ".\.venv311\Scripts\python.exe" -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 pause

@@ -120,6 +120,7 @@
       transition: all 0.3s;
     }
     .status-pill.ok   { border-color: #5ec4a044; color: var(--success); }
+    .status-pill.busy { border-color: #e9c46a44; color: #e9c46a; }
     .status-pill.err  { border-color: #e8755a44; color: var(--accent); }
     .status-dot {
       width: 7px; height: 7px;
@@ -587,14 +588,24 @@
   </div>
 
   <script>
-    const API = () => document.getElementById('apiHost').value.replace(/\/$/, '');
+    const API = () => document.getElementById('apiHost').value.trim().replace(/\/$/, '');
+    let isGenerating = false;
+    let healthIntervalId = null;
+    let healthRequestId = 0;
 
     // ── Status check ─────────────────────────────────────
     async function checkStatus() {
       const pill = document.getElementById('statusPill');
       const txt  = document.getElementById('statusText');
+      if (isGenerating) {
+        pill.className = 'status-pill busy';
+        txt.textContent = 'Processing · Model busy';
+        return;
+      }
+      const requestId = ++healthRequestId;
       try {
         const r = await fetch(API() + '/health', { signal: AbortSignal.timeout(4000) });
+        if (isGenerating || requestId !== healthRequestId) return;
         const d = await r.json();
         if (d.model_loaded) {
           pill.className = 'status-pill ok';
@@ -604,12 +615,24 @@
           txt.textContent = 'Server up · Model loading…';
         }
       } catch {
+        if (isGenerating || requestId !== healthRequestId) return;
         pill.className = 'status-pill err';
         txt.textContent = 'Server offline · Start backend first';
       }
     }
+    function startStatusTimer() {
+      if (healthIntervalId) return;
+      healthIntervalId = setInterval(checkStatus, 10000);
+    }
+
+    function stopStatusTimer() {
+      if (!healthIntervalId) return;
+      clearInterval(healthIntervalId);
+      healthIntervalId = null;
+    }
+
     checkStatus();
-    setInterval(checkStatus, 10000);
+    startStatusTimer();
 
     // ── Waveform animation ────────────────────────────────
     function buildWaveform() {
@@ -691,6 +714,9 @@
 
       submitBtn.disabled = true;
       loadEl.classList.add('visible');
+      isGenerating = true;
+      stopStatusTimer();
+      checkStatus();
 
       try {
         const form = new FormData();
@@ -720,6 +746,9 @@
       } finally {
         loadEl.classList.remove('visible');
         submitBtn.disabled = false;
+        isGenerating = false;
+        checkStatus();
+        startStatusTimer();
       }
     });
 
